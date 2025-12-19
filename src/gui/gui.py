@@ -636,9 +636,9 @@ class BookyApp(tk.Tk):
 
         self.cycle_times = deque(maxlen=200)
 
-        icon_path = resource_path("castle_booky.ico")
+        icon_path = resource_path("src/assets/castle_booky_icon.ico")
         self.title("Castle Booky")
-        self.geometry("700x600")
+        self.geometry("700x700")
         self.minsize(700, 700)
         self.maxsize(700, 700)
         if os.name == "nt":
