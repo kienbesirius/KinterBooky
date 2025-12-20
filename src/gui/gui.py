@@ -6,6 +6,7 @@ from tkinter import ttk
 import os
 import time
 import random 
+from collections import Counter
 import threading
 import configparser
 from pathlib import Path
@@ -81,7 +82,7 @@ class BookyApp(tk.Tk):
             return False 
 
         r = random.uniform(0, self.rep_total)
-        return r > (self.rep_total * 0.9)
+        return r > (self.rep_total * 0.87)
 
     def _rate(self, p, t):
         # Tính pass rate cho từng KPI
@@ -142,6 +143,113 @@ class BookyApp(tk.Tk):
         # Gọi worker
         self._t0 = time.perf_counter()
         self.log.info("FLOW started!")
+        self.run_in_worker(job, on_done)
+
+    # --------------------- Stimulation ---------------------------------
+    def start_simulation_worker(self, n: int = 10000, p_human: float = 0.20, p_system: float = 0.03):
+        """
+        Simulate n lần test trong worker thread.
+        - p_human: fail khách quan (công nhân/đèn/camera)
+        - p_system: fail do hệ thống
+        """
+        # reset counter (tuỳ bạn muốn reset hay cộng dồn)
+        self.real_total = 0
+        self.real_pass  = 0
+        self.real_fail  = 0
+
+        self.rep_total = 0
+        self.rep_pass  = 0
+        self.rep_fail  = 0
+
+        self.cycle_times.clear()
+
+        self.disable_inputs()
+        self.set_status("STANDBY")
+        self.log.info(f"[SIM] Start simulation: n={n}, p_human={p_human:.3f}, p_system={p_system:.3f}")
+        self.update_log_view()
+
+        def job():
+            rng = random.Random()  # hoặc seed cố định: random.Random(1234)
+            cause_cnt = Counter()
+
+            t0 = time.perf_counter()
+            for i in range(1, n + 1):
+                # mô phỏng cycle time (giả lập) ~ 0.6s..1.6s
+                cycle = rng.uniform(0.6, 1.6)
+                # (không sleep để chạy nhanh; bạn muốn “real-time” thì time.sleep(cycle))
+
+                human_fail = (rng.random() < p_human)
+                system_fail = (rng.random() < p_system)
+
+                ok_flag = not (human_fail or system_fail)
+
+                if ok_flag:
+                    msg = "ALL PASSED"
+                    cause = "PASS"
+                else:
+                    if human_fail and system_fail:
+                        msg = "FAIL: Human+System"
+                        cause = "HUMAN+SYSTEM"
+                    elif human_fail:
+                        msg = "FAIL: Human/Lighting/Camera"
+                        cause = "HUMAN"
+                    else:
+                        msg = "FAIL: System"
+                        cause = "SYSTEM"
+
+                # ====== update counters giống on_done của bạn ======
+                self.real_total += 1
+                if ok_flag:
+                    self.real_pass += 1
+                    self.rep_total += 1
+                    self.rep_pass += 1
+                else:
+                    self.real_fail += 1
+                    if self._should_count_fail():
+                        self.rep_total += 1
+                        self.rep_fail += 1
+
+                self.cycle_times.append(cycle)
+                cause_cnt[cause] += 1
+
+                # log thưa thôi cho đỡ spam
+                if i % 100 == 0:
+                    real_rate = (self.real_pass / self.real_total) if self.real_total else 1.0
+                    rep_rate  = (self.rep_pass / self.rep_total) if self.rep_total else 1.0
+                    self.log.info(
+                        f"[SIM] {i}/{n} | real_pass={real_rate*100:.2f}% | rep_pass={rep_rate*100:.2f}%"
+                    )
+
+            elapsed = time.perf_counter() - t0
+            return (cause_cnt, elapsed)
+
+        def on_done(result, error):
+            if error:
+                self.set_status("FAIL")
+                self.log.error(f"[SIM] Error: {error}")
+            else:
+                cause_cnt, elapsed = result
+                real_rate = (self.real_pass / self.real_total) if self.real_total else 1.0
+                rep_rate  = (self.rep_pass / self.rep_total) if self.rep_total else 1.0
+                avg_cycle = (sum(self.cycle_times) / len(self.cycle_times)) if self.cycle_times else 0.0
+
+                # Status cuối: theo KPI real hay rep tuỳ bạn
+                self.set_status("PASS" if real_rate >= 0.95 else "FAIL")
+
+                self.avg_cycle_var.set(f"cycle_time: {avg_cycle:.3f} s")
+
+                self.log.info(
+                    f"[SIM][DONE] n={self.real_total} | "
+                    f"REAL pass={self.real_pass} fail={self.real_fail} rate={real_rate*100:.2f}% | "
+                    f"REP pass={self.rep_pass} fail={self.rep_fail} total={self.rep_total} rate={rep_rate*100:.2f}% | "
+                    f"elapsed={elapsed:.3f}s"
+                )
+                self.log.info(f"[SIM][CAUSE] {dict(cause_cnt)}")
+
+            self._draw_donut()
+            self.update_log_view()
+            self.enable_inputs()
+
         self.run_in_worker(job, on_done)
 
     def start_check(self):
@@ -559,7 +667,7 @@ class BookyApp(tk.Tk):
         rep_rate  = self._rate(self.rep_pass,  self.rep_total)
         real_rate = self._rate(self.real_pass, self.real_total)
 
-        pass_rate = rep_rate
+        pass_rate = rep_rate / 100
         pass_rate = min(max(pass_rate, 0.0), 1.0)
         pass_pct = int(round(pass_rate * 100)) if total > 0 else None
 
@@ -1377,6 +1485,7 @@ class BookyApp(tk.Tk):
         book2_status = str(self.book2_entry.cget("state"))
         if book1_status == "disabled" and book2_status == "disabled":
             self.start_flowthread_check()
+            # self.start_simulation_worker(n=100, p_human=0.2, p_system=0.03)
         return "break"
 
     def on_book2_enter(self, event=None):
@@ -1391,6 +1500,7 @@ class BookyApp(tk.Tk):
         book2_status = str(self.book2_entry.cget("state"))
         if book1_status == "disabled" and book2_status == "disabled":
             self.start_flowthread_check()
+            # self.start_simulation_worker(n=100, p_human=0.2, p_system=0.03)
         return "break"
 
     def on_book1_var_changed(self, *args):
