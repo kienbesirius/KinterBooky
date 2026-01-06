@@ -13,6 +13,7 @@ from pathlib import Path
 from src.core.core import *
 from src.utils.utils import *
 from PIL import Image, ImageDraw, ImageTk
+from src.gui.gui_KIP import KPIWidget
 
 # Global variables
 DSN = ""
@@ -129,11 +130,6 @@ class BookyApp(tk.Tk):
                     self.set_status("FAIL")
                     self.log.error("No response from camera")
             self.cycle_times.append(donetime)
-            # self.cycle_times.append(donetime)
-
-            if len(self.cycle_times) > 0:
-                avg = sum(self.cycle_times) / len(self.cycle_times)
-                self.avg_cycle_var.set(f"cycle_time: {avg:.3f} s")
 
             # redraw donut
             self._draw_donut()
@@ -231,12 +227,9 @@ class BookyApp(tk.Tk):
                 cause_cnt, elapsed = result
                 real_rate = (self.real_pass / self.real_total) if self.real_total else 1.0
                 rep_rate  = (self.rep_pass / self.rep_total) if self.rep_total else 1.0
-                avg_cycle = (sum(self.cycle_times) / len(self.cycle_times)) if self.cycle_times else 0.0
-
+       
                 # Status cuối: theo KPI real hay rep tuỳ bạn
                 self.set_status("PASS" if real_rate >= 0.95 else "FAIL")
-
-                self.avg_cycle_var.set(f"cycle_time: {avg_cycle:.3f} s")
 
                 self.log.info(
                     f"[SIM][DONE] n={self.real_total} | "
@@ -474,22 +467,6 @@ class BookyApp(tk.Tk):
 
         self.model_codes = sorted(self.model_map.keys())
 
-    # def _save_model_config(self):
-    #     """
-    #     Ghi self.model_map ra file ini (tạo mới nếu chưa có).
-    #     """
-    #     cfg = configparser.ConfigParser()
-    #     for code, info in self.model_map.items():
-    #         cfg[code] = {}
-    #         if info.get("SSN2"):
-    #             cfg[code]["SSN2"] = info["SSN2"]
-    #         if info.get("SSN8"):
-    #             cfg[code]["SSN8"] = info["SSN8"]
-
-    #     self.config_path.parent.mkdir(parents=True, exist_ok=True)
-    #     with open(self.config_path, "w", encoding="utf-8") as f:
-    #         cfg.write(f)
-
     def _save_model_config(self):
         """
         Ghi self.model_map ra file ini nhưng GIỮ section [COM] nếu đang có.
@@ -662,70 +639,13 @@ class BookyApp(tk.Tk):
         )
 
     def _draw_donut(self):
-        total = int(getattr(self, "rep_total", 0) or 0)
-
-        rep_rate  = self._rate(self.rep_pass,  self.rep_total)
-        real_rate = self._rate(self.real_pass, self.real_total)
-
-        pass_rate = rep_rate / 100
-        pass_rate = min(max(pass_rate, 0.0), 1.0)
-        pass_pct = int(round(pass_rate * 100)) if total > 0 else None
-
-        # kích thước canvas thực
-        W = int(self.donut["width"])
-        H = int(self.donut["height"])
-
-        # supersample để mịn
-        S = 4  # 3~5 đều ok
-        w2, h2 = W * S, H * S
-
-        bg = PALETTE["bg_card"]
-        # base = "#d0d0d0"
-        base = "#ff4c2d"
-        okc = PALETTE["success"]
-        txt = PALETTE["fg_text"]
-
-        img = Image.new("RGBA", (w2, h2), bg)
-        dr = ImageDraw.Draw(img)
-
-        pad = 1 * S
-        ring_w = 10 * S
-        hole_pad = 18 * S
-
-        x0, y0 = pad, pad
-        x1, y1 = w2 - pad, h2 - pad
-
-        # base ring
-        dr.ellipse((x0, y0, x1, y1), outline=base, width=ring_w)
-
-        # pass arc (PIL dùng degree: 0 ở 3h, CCW dương)
-        if total > 0 and pass_rate > 0:
-            start = 270  # 12h
-            end = start - 360 * pass_rate  # quay theo chiều kim đồng hồ
-            dr.arc((x0, y0, x1, y1), start=end, end=start, fill=okc, width=ring_w)
-
-        # hole
-        dr.ellipse(
-            (x0 + hole_pad, y0 + hole_pad, x1 - hole_pad, y1 - hole_pad),
-            fill=bg,
-            outline=None
-        )
-
-        # downsample về đúng size canvas (mịn)
-        img_small = img.resize((W, H), Image.Resampling.LANCZOS)
-
-        # đẩy lên Canvas
-        self._donut_imgtk = ImageTk.PhotoImage(img_small)  # giữ reference để không bị GC
-        self.donut.delete("all")
-        self.donut.create_image(0, 0, anchor="nw", image=self._donut_imgtk)
-
-        # text % ở giữa (vẽ bằng canvas cho sắc nét)
-        self.donut.create_text(
-            W / 2, H / 2,
-            text=f"{pass_pct}%" if pass_pct is not None else "--%",
-            font=("Segoe UI", 8, "normal"),
-            fill=txt,
-        )
+        # delegate to KPIWidget
+        if hasattr(self, "kpi"):
+            self.kpi.update_kpi(
+                rep_pass=self.rep_pass,
+                rep_total=self.rep_total,
+                cycle_times=self.cycle_times,
+            )
 
 
     def __init__(self):
@@ -943,18 +863,16 @@ class BookyApp(tk.Tk):
         footer_left = ttk.Frame(footer, style="Card.TFrame")
         footer_left.grid(row=0, column=0, sticky="w")
 
-        self.donut = tk.Canvas(
+        self.kpi = KPIWidget(
             footer_left,
-            width=50, height=50,
-            highlightthickness=0,
+            donut_size=50,
             bg=PALETTE["bg_card"],
-            # bg=self._card_bg_color(),  # hoặc set giống nền card, xem mục 4
+            base_ring="#ff4c2d",              # base ring (fail-ish)
+            pass_ring=PALETTE["success"],     # pass ring
+            text_color=PALETTE["fg_text"],
+            label_prefix="cycle_time:",
         )
-        self.donut.pack(side="left", padx=(0, 10))
-
-        self.avg_cycle_var = tk.StringVar(value="cycle_time: --.- s")
-        avg_lbl = ttk.Label(footer_left, textvariable=self.avg_cycle_var, style="StatusSecondary.TLabel", background=PALETTE["bg_card"])
-        avg_lbl.pack(side="left", anchor="center")
+        self.kpi.pack(side="left", padx=(0, 10))
 
         # RIGHT: move INFO button qua đây (đối diện donut)
         # self.info_btn.pack(...) -> chuyển sang footer_right
