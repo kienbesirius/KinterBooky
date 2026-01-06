@@ -353,7 +353,7 @@ class BookyApp(tk.Tk):
                 self.set_dsn(DSN)
                 USB_CABLE = res_golden_eye.fields.get("SSN4", "")
 
-                USB_CABLE_6_FIRST_CHAR = str(res_golden_eye.fields.get("SSN4", ""))[:6]
+                USB_CABLE_6_FIRST_CHAR = str(res_golden_eye.fields.get("SSN4", ""))[:6].strip()
 
             else:
                 return False, f"FAIL:{COM_GOLDEN_EYE} - No response from Golden Eye!"
@@ -372,7 +372,7 @@ class BookyApp(tk.Tk):
                 res1 = parse_sfc_response(result1)
                 SFC_DSN = res1.dsn or ""
                 SFC_SSN4 = res1.fields.get("SSN4", "")
-                SFC_SSN4_6_FIRST_CHAR = str(res1.fields.get("SSN4", ""))[:6]
+                SFC_SSN4_6_FIRST_CHAR = str(res1.fields.get("SSN4", ""))[:6].strip()
                 SFC_UPC = res1.fields.get("UPC", "")
             else:
                 return False, f"FAIL: ERROR: No response from COM SFC"
