@@ -14,7 +14,8 @@ from src.core.core import *
 from src.utils.utils import *
 from PIL import Image, ImageDraw, ImageTk
 from src.gui.gui_KIP import KPIWidget
-
+from src.gui.gui_KPI import KPIWidget as new_KPIWidget
+from src.gui.gui_KPI import KPIEvent as new_KPIEvent
 # Global variables
 DSN = ""
 UPC = ""
@@ -113,6 +114,7 @@ class BookyApp(tk.Tk):
                         self.real_pass += 1
                         self.rep_total += 1
                         self.rep_pass += 1
+                        self.kpi.update_kpi(ok_flag, cycle_time=donetime)
                         self.set_status("PASS")
                         self.log.info(f"[RESULT] PASS cycle={donetime:.3f}s")
                     else:
@@ -120,6 +122,7 @@ class BookyApp(tk.Tk):
                         if self._should_count_fail(): 
                             self.rep_total += 1
                             self.rep_fail += 1
+                            self.kpi.update_kpi(ok_flag, cycle_time=donetime)
                         self.set_status("FAIL")
                         self.log.info(f"[RESULT] FAIL cycle={donetime:.3f}s msg={msg}")
                         self.log.error(msg)
@@ -239,7 +242,8 @@ class BookyApp(tk.Tk):
                 )
                 self.log.info(f"[SIM][CAUSE] {dict(cause_cnt)}")
 
-            self._draw_donut()
+            # self._draw_donut()
+
             self.update_log_view()
             self.enable_inputs()
 
@@ -346,7 +350,7 @@ class BookyApp(tk.Tk):
                 self.set_dsn(DSN)
                 USB_CABLE = res_golden_eye.fields.get("SSN4", "")
 
-                USB_CABLE_6_FIRST_CHAR = str(res_golden_eye.fields.get("SSN4", ""))[:6].strip()
+                USB_CABLE_6_FIRST_CHAR = str(res_golden_eye.fields.get("SSN4", ""))
 
             else:
                 return False, f"FAIL:{COM_GOLDEN_EYE} - No response from Golden Eye!"
@@ -365,11 +369,11 @@ class BookyApp(tk.Tk):
                 res1 = parse_sfc_response(result1)
                 SFC_DSN = res1.dsn or ""
                 SFC_SSN4 = res1.fields.get("SSN4", "")
-                SFC_SSN4_6_FIRST_CHAR = str(res1.fields.get("SSN4", ""))[:6].strip()
+                SFC_SSN4_6_FIRST_CHAR = str(res1.fields.get("SSN4", ""))
                 SFC_UPC = res1.fields.get("UPC", "")
             else:
                 return False, f"FAIL: ERROR: No response from COM SFC"
-            # Compare  
+            # Compare full string of SSN4 (not 6 first char anymore!)
             if SFC_SSN4_6_FIRST_CHAR is None:
                 return False, f"FAIL: ERROR: SSN4 from SFC is empty"
             
@@ -863,7 +867,7 @@ class BookyApp(tk.Tk):
         footer_left = ttk.Frame(footer, style="Card.TFrame")
         footer_left.grid(row=0, column=0, sticky="w")
 
-        self.kpi = KPIWidget(
+        self.kpi = new_KPIWidget(
             footer_left,
             donut_size=50,
             bg=PALETTE["bg_card"],
